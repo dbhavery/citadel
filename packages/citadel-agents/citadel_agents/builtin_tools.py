@@ -7,10 +7,16 @@ write_file, and http_get.
 from __future__ import annotations
 
 import ast
+import ipaddress
+import logging
 import operator
 import os
+import socket
 from datetime import datetime, timezone
 from typing import Any, Callable, Union
+from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 from citadel_agents.tool import ToolRegistry, _generate_schema
 
@@ -87,6 +93,33 @@ def current_time() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _get_allowed_directories() -> list[str]:
+    """Return the list of directories agents are allowed to access.
+
+    Configured via CITADEL_AGENT_ALLOWED_DIRS (comma-separated paths).
+    Defaults to current working directory if not set.
+    """
+    env_val = os.environ.get("CITADEL_AGENT_ALLOWED_DIRS", "")
+    if env_val.strip():
+        return [os.path.normpath(d.strip()) for d in env_val.split(",") if d.strip()]
+    return [os.path.normpath(os.getcwd())]
+
+
+def _is_path_allowed(path: str) -> bool:
+    """Check if a path falls within one of the allowed directories."""
+    normalized = os.path.normpath(os.path.abspath(path))
+    for allowed in _get_allowed_directories():
+        # Use os.path.commonpath to safely check containment
+        try:
+            common = os.path.commonpath([normalized, allowed])
+            if common == allowed:
+                return True
+        except ValueError:
+            # Different drives on Windows
+            continue
+    return False
+
+
 def read_file(path: str) -> str:
     """Read and return the contents of a file.
 
@@ -96,10 +129,11 @@ def read_file(path: str) -> str:
     Returns:
         The file contents as a string, or an error message.
     """
-    # Basic path validation
     normalized = os.path.normpath(path)
     if ".." in normalized.split(os.sep):
         return "Error: Path traversal (..) is not allowed"
+    if not _is_path_allowed(normalized):
+        return "Error: Path is outside allowed directories"
     try:
         with open(normalized, "r", encoding="utf-8") as f:
             content = f.read()
@@ -127,6 +161,8 @@ def write_file(path: str, content: str) -> str:
     normalized = os.path.normpath(path)
     if ".." in normalized.split(os.sep):
         return "Error: Path traversal (..) is not allowed"
+    if not _is_path_allowed(normalized):
+        return "Error: Path is outside allowed directories"
     try:
         os.makedirs(os.path.dirname(normalized), exist_ok=True)
         with open(normalized, "w", encoding="utf-8") as f:
@@ -138,8 +174,33 @@ def write_file(path: str, content: str) -> str:
         return f"Error writing file: {e}"
 
 
+def _is_url_safe(url: str) -> tuple[bool, str]:
+    """Validate a URL is safe to fetch (no SSRF to internal networks).
+
+    Returns:
+        (is_safe, error_message) tuple.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, f"Unsupported scheme: {parsed.scheme!r}. Only http/https allowed."
+    hostname = parsed.hostname
+    if not hostname:
+        return False, "No hostname in URL"
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+        for family, _, _, _, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False, f"URL resolves to private/reserved IP: {ip}"
+    except (socket.gaierror, ValueError) as e:
+        return False, f"Cannot resolve hostname: {e}"
+    return True, ""
+
+
 async def http_get(url: str) -> str:
     """Fetch a URL and return its content.
+
+    Only allows http/https URLs that resolve to public IP addresses.
 
     Args:
         url: The URL to fetch.
@@ -147,9 +208,12 @@ async def http_get(url: str) -> str:
     Returns:
         The response body as text, or an error message.
     """
+    safe, err = _is_url_safe(url)
+    if not safe:
+        return f"Error: {err}"
     try:
         import httpx
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             text = resp.text
