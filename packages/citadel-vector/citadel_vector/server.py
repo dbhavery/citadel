@@ -164,7 +164,7 @@ def main() -> None:
 
     serve_parser = subparsers.add_parser("serve", help="Start the REST API server")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Bind address")
-    serve_parser.add_argument("--port", type=int, default=8100, help="Bind port")
+    serve_parser.add_argument("--port", type=int, default=8082, help="Bind port")
     serve_parser.add_argument(
         "--storage-dir", default="./vector_data", help="Base storage directory"
     )

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
-from citadel_agents.agent import Agent, AgentResponse
+from citadel_agents.agent import Agent
+from citadel_agents.builtin_tools import calculator
 from citadel_agents.llm import LLMClient, LLMResponse
 from citadel_agents.tool import ToolRegistry
 
@@ -68,7 +68,7 @@ class TestAgent:
             name="calculator",
             description="Calculate math",
             parameters={"type": "object", "properties": {"expression": {"type": "string"}}},
-            handler=lambda expression: str(eval(expression)),
+            handler=lambda expression: calculator(expression),
         )
 
         agent = Agent(

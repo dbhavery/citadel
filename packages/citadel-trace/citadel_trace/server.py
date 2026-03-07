@@ -31,6 +31,7 @@ def create_app(db_path: str = "./traces.db") -> "FastAPI":
         Configured FastAPI app instance.
     """
     from fastapi import FastAPI, Query
+    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
 
     global _collector, _metrics, _alert_manager
@@ -39,6 +40,14 @@ def create_app(db_path: str = "./traces.db") -> "FastAPI":
         title="citadel-trace",
         description="LLM observability API",
         version="0.1.0",
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     _collector = TraceCollector(db_path=db_path)
@@ -53,45 +62,52 @@ def create_app(db_path: str = "./traces.db") -> "FastAPI":
     @app.get("/traces")
     def list_traces(limit: int = Query(50, ge=1, le=500)) -> list[dict]:
         """List recent traces."""
-        assert _collector is not None
+        if _collector is None:
+            raise RuntimeError("TraceCollector not initialized — call create_app() first")
         traces = _collector.list_traces(limit=limit)
         return [_serialize_trace(t) for t in traces]
 
     @app.get("/traces/{trace_id}")
     def get_trace(trace_id: str) -> dict:
         """Get a full trace with all spans."""
-        assert _collector is not None
+        if _collector is None:
+            raise RuntimeError("TraceCollector not initialized — call create_app() first")
         trace = _collector.get_trace(trace_id)
         return _serialize_trace(trace)
 
     @app.get("/metrics/cost")
     def cost_metrics(days: int = Query(7, ge=1, le=365)) -> dict:
         """Get cost summary."""
-        assert _metrics is not None
+        if _metrics is None:
+            raise RuntimeError("MetricsCalculator not initialized — call create_app() first")
         return _metrics.cost_summary(days=days)
 
     @app.get("/metrics/latency")
     def latency_metrics(model: Optional[str] = None) -> dict:
         """Get latency percentiles."""
-        assert _metrics is not None
+        if _metrics is None:
+            raise RuntimeError("MetricsCalculator not initialized — call create_app() first")
         return _metrics.latency_percentiles(model=model)
 
     @app.get("/metrics/tokens")
     def token_metrics(days: int = Query(7, ge=1, le=365)) -> dict:
         """Get token usage summary."""
-        assert _metrics is not None
+        if _metrics is None:
+            raise RuntimeError("MetricsCalculator not initialized — call create_app() first")
         return _metrics.token_usage(days=days)
 
     @app.get("/metrics/models")
     def model_metrics() -> list[dict]:
         """Compare models by cost, latency, error rate."""
-        assert _metrics is not None
+        if _metrics is None:
+            raise RuntimeError("MetricsCalculator not initialized — call create_app() first")
         return _metrics.model_comparison()
 
     @app.get("/alerts")
     def check_alerts() -> dict:
         """Check alert rules and return any triggered alerts."""
-        assert _alert_manager is not None
+        if _alert_manager is None:
+            raise RuntimeError("AlertManager not initialized — call create_app() first")
         triggered = _alert_manager.check_rules()
         return {
             "rules_count": len(_alert_manager.rules),
@@ -151,7 +167,7 @@ def main() -> None:
         "--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)"
     )
     serve_parser.add_argument(
-        "--port", type=int, default=8100, help="Port to listen on (default: 8100)"
+        "--port", type=int, default=8081, help="Port to listen on (default: 8081)"
     )
     serve_parser.add_argument(
         "--db", default="./traces.db", help="Path to SQLite database (default: ./traces.db)"

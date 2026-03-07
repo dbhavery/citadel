@@ -539,7 +539,8 @@ tbody tr { cursor: default; }
     Citadel
   </div>
   <div class="topbar-right">
-    <input type="text" class="base-url-input" id="baseUrlInput" value="http://localhost:8080" placeholder="API base URL" title="API base URL">
+    <input type="text" class="base-url-input" id="baseUrlInput" value="http://localhost:8080" placeholder="Gateway URL" title="Gateway URL (health, /v1/*)">
+    <input type="text" class="base-url-input" id="traceUrlInput" value="http://localhost:8081" placeholder="Trace URL" title="Trace URL (traces, metrics, alerts)">
     <div class="conn-indicator">
       <div class="conn-dot" id="connDot"></div>
       <span id="connLabel">Connecting...</span>
@@ -883,11 +884,13 @@ tbody tr { cursor: default; }
 
   // ---- Configuration ----
   let BASE_URL = 'http://localhost:8080';
+  let TRACE_URL = 'http://localhost:8081';
   const POLL_INTERVAL = 15000; // 15 seconds
   let pollTimer = null;
 
   // ---- DOM refs ----
   const baseUrlInput    = document.getElementById('baseUrlInput');
+  const traceUrlInput   = document.getElementById('traceUrlInput');
   const connDot         = document.getElementById('connDot');
   const connLabel       = document.getElementById('connLabel');
   const navItems        = document.querySelectorAll('.nav-item[data-page]');
@@ -922,11 +925,25 @@ tbody tr { cursor: default; }
     refreshAll();
   });
 
+  traceUrlInput.addEventListener('change', () => {
+    TRACE_URL = traceUrlInput.value.replace(/\/+$/, '');
+    refreshAll();
+  });
+
   // ============================================================
   // API Fetching
   // ============================================================
   async function apiFetch(path) {
     const resp = await fetch(BASE_URL + path, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return resp.json();
+  }
+
+  async function traceFetch(path) {
+    const resp = await fetch(TRACE_URL + path, {
       headers: { 'Accept': 'application/json' },
       signal: AbortSignal.timeout(8000)
     });
@@ -968,7 +985,7 @@ tbody tr { cursor: default; }
 
   async function fetchTraces() {
     try {
-      const data = await apiFetch('/traces');
+      const data = await traceFetch('/traces');
       allTraces = Array.isArray(data) ? data : (data.traces || []);
     } catch {
       if (!allTraces.length) allTraces = generateDemoTraces();
@@ -977,7 +994,7 @@ tbody tr { cursor: default; }
 
   async function fetchCostData() {
     try {
-      const data = await apiFetch('/metrics/cost');
+      const data = await traceFetch('/metrics/cost');
       costData = Array.isArray(data) ? data : (data.daily || []);
     } catch {
       if (!costData.length) costData = generateDemoCost();
@@ -986,7 +1003,7 @@ tbody tr { cursor: default; }
 
   async function fetchModelData() {
     try {
-      const data = await apiFetch('/metrics/models');
+      const data = await traceFetch('/metrics/models');
       modelData = Array.isArray(data) ? data : (data.models || []);
     } catch {
       if (!modelData.length) modelData = generateDemoModels();
@@ -995,7 +1012,7 @@ tbody tr { cursor: default; }
 
   async function fetchAlerts() {
     try {
-      const data = await apiFetch('/alerts');
+      const data = await traceFetch('/alerts');
       alertData = {
         rules:   data.rules   || data.alert_rules || [],
         history: data.history || data.alert_history || []

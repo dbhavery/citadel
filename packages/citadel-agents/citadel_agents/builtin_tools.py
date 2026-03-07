@@ -7,11 +7,55 @@ write_file, and http_get.
 from __future__ import annotations
 
 import ast
+import operator
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable, Union
 
-from citadel_agents.tool import ToolRegistry, ToolSpec, _generate_schema
+from citadel_agents.tool import ToolRegistry, _generate_schema
+
+
+_SAFE_BINOPS: dict[type, Callable[..., Any]] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+
+_SAFE_UNARYOPS: dict[type, Callable[..., Any]] = {
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+
+def _eval_node(node: ast.AST) -> Union[int, float]:
+    """Recursively evaluate an AST node using only safe arithmetic operations.
+
+    Raises:
+        ValueError: If the node contains unsupported operations.
+    """
+    if isinstance(node, ast.Expression):
+        return _eval_node(node.body)
+    if isinstance(node, ast.Constant):
+        if not isinstance(node.value, (int, float)):
+            raise ValueError(f"Unsupported constant type: {type(node.value).__name__}")
+        return node.value
+    if isinstance(node, ast.BinOp):
+        op_fn = _SAFE_BINOPS.get(type(node.op))
+        if op_fn is None:
+            raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
+        left = _eval_node(node.left)
+        right = _eval_node(node.right)
+        return op_fn(left, right)
+    if isinstance(node, ast.UnaryOp):
+        op_fn = _SAFE_UNARYOPS.get(type(node.op))
+        if op_fn is None:
+            raise ValueError(f"Unsupported unary operator: {type(node.op).__name__}")
+        return op_fn(_eval_node(node.operand))
+    raise ValueError(f"Unsupported operation in expression: {type(node).__name__}")
 
 
 def calculator(expression: str) -> str:
@@ -27,19 +71,10 @@ def calculator(expression: str) -> str:
         The result as a string.
     """
     try:
-        # Parse the expression into an AST
         tree = ast.parse(expression, mode="eval")
-        # Validate that it only contains safe operations
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
-                                 ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow,
-                                 ast.Mod, ast.FloorDiv, ast.USub, ast.UAdd)):
-                continue
-            else:
-                return f"Error: Unsupported operation in expression: {type(node).__name__}"
-        result = eval(compile(tree, "<calc>", "eval"))  # noqa: S307 — validated AST
+        result = _eval_node(tree)
         return str(result)
-    except (SyntaxError, TypeError, ZeroDivisionError) as e:
+    except (SyntaxError, TypeError, ZeroDivisionError, ValueError) as e:
         return f"Error: {e}"
 
 

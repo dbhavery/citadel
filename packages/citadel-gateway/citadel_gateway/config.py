@@ -40,7 +40,7 @@ class GatewayConfig:
             GATEWAY_RATE_LIMIT_ENABLED, GATEWAY_RATE_LIMIT_RPM,
             GATEWAY_ROUTING_RULES_PATH,
             ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY,
-            OLLAMA_BASE_URL
+            OLLAMA_URL
         """
         providers: dict[str, dict[str, Any]] = {}
 
@@ -68,7 +68,7 @@ class GatewayConfig:
                 "api_key": google_key,
             }
 
-        ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
         providers["ollama"] = {"base_url": ollama_url}
 
         def _bool(val: str | None, default: bool) -> bool:

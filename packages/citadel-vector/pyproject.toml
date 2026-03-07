@@ -16,4 +16,4 @@ citadel-vector = "citadel_vector.server:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"

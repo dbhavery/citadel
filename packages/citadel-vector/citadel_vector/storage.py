@@ -1,14 +1,13 @@
 """Persistent vector storage wrapping HNSWIndex.
 
 Vectors are stored as a NumPy memory-mapped file, metadata in SQLite,
-and the graph structure as a pickle file.
+and the graph structure as a JSON file.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import pickle
 import sqlite3
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -26,7 +25,7 @@ class VectorStore:
 
         {path}/
             vectors.npy    -- NumPy array of all vectors
-            graph.pkl      -- pickled graph structure + index parameters
+            graph.pkl      -- JSON graph structure + index parameters
             metadata.db    -- SQLite database for metadata
 
     Args:
@@ -164,7 +163,7 @@ class VectorStore:
 
         Writes three files:
         - vectors.npy: all vector data as a NumPy array
-        - graph.pkl: graph structure, parameters, and bookkeeping
+        - graph.pkl: graph structure, parameters, and bookkeeping (JSON format)
         - metadata.db: already persisted on each add() call
         """
         # Save vectors as numpy array
@@ -179,29 +178,36 @@ class VectorStore:
         else:
             np.save(str(self._vectors_path), np.array([], dtype=np.float64))
 
-        # Save graph and index state
+        # Save graph and index state as JSON.
+        # Sets are converted to lists for serialization; converted back on load.
+        graph_as_lists: list[dict[str, list[str]]] = [
+            {node: sorted(str(n) for n in neighbors) for node, neighbors in layer.items()}
+            for layer in self._index._graph
+        ]
+        deleted_as_list: list[str] = sorted(str(d) for d in self._index._deleted)
+
         state = {
             "dim": self._index.dim,
             "max_elements": self._index.max_elements,
             "M": self._index.M,
             "ef_construction": self._index.ef_construction,
             "metric": self._index.metric,
-            "graph": self._index._graph,
-            "node_level": self._index._node_level,
+            "graph": graph_as_lists,
+            "node_level": {str(k): v for k, v in self._index._node_level.items()},
             "entry_point": self._index._entry_point,
             "max_level": self._index._max_level,
-            "deleted": self._index._deleted,
-            "metadata_map": self._index._metadata,
+            "deleted": deleted_as_list,
+            "metadata_map": {str(k): v for k, v in self._index._metadata.items()},
             "id_order": self._id_order,
         }
-        with open(self._graph_path, "wb") as f:
-            pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(self._graph_path, "w", encoding="utf-8") as f:
+            json.dump(state, f)
 
     def _load(self) -> None:
         """Load index from disk."""
-        # Load graph state
-        with open(self._graph_path, "rb") as f:
-            state = pickle.load(f)
+        # Load graph state from JSON
+        with open(self._graph_path, "r", encoding="utf-8") as f:
+            state = json.load(f)
 
         # Reconstruct index
         self._index = HNSWIndex(
@@ -212,11 +218,15 @@ class VectorStore:
             metric=state["metric"],
         )
 
-        self._index._graph = state["graph"]
+        # Convert lists back to sets for graph neighbors and deleted IDs
+        self._index._graph = [
+            {node: set(neighbors) for node, neighbors in layer.items()}
+            for layer in state["graph"]
+        ]
         self._index._node_level = state["node_level"]
         self._index._entry_point = state["entry_point"]
         self._index._max_level = state["max_level"]
-        self._index._deleted = state["deleted"]
+        self._index._deleted = set(state["deleted"])
         self._index._metadata = state["metadata_map"]
         self._id_order = state["id_order"]
 

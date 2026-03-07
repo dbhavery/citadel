@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from citadel_gateway import __version__
@@ -42,6 +43,14 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
         title="Citadel Gateway",
         version=__version__,
         description="OpenAI-compatible LLM reverse proxy",
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # --- Subsystems --------------------------------------------------------
