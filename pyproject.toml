@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "citadel-ai"
+version = "0.1.0"
+description = "Open-source AI operations platform - gateway, vector engine, agents, ingestion, tracing, dashboard"
+authors = [{name = "Donald Havery", email = "dbhavery@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "click>=8.0,<9.0",
+    "rich>=13.0,<14.0",
+    "citadel-gateway>=0.1.0",
+    "citadel-vector>=0.1.0",
+    "citadel-agents>=0.1.0",
+    "citadel-ingest>=0.1.0",
+    "citadel-trace>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1.0",
+    "mypy>=1.5",
+]
+
+[project.scripts]
+citadel = "citadel_cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/dbhavery/citadel"
+Repository = "https://github.com/dbhavery/citadel"
+Issues = "https://github.com/dbhavery/citadel/issues"
+
+[tool.setuptools.packages.find]
+include = ["citadel_cli*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

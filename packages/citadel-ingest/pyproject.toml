@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "citadel-ingest"
+version = "0.1.0"
+description = "Document ingestion pipeline — parse, chunk, embed, and index documents for RAG"
+authors = [{name = "Donald Havery", email = "dbhavery@gmail.com"}]
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+pdf = ["PyPDF2>=3.0"]
+docx = ["python-docx>=1.0"]
+ollama = ["httpx>=0.28"]
+vector = ["citadel-vector>=0.1"]
+all = ["PyPDF2>=3.0", "python-docx>=1.0", "httpx>=0.28"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.26"]
+
+[tool.setuptools.packages.find]
+include = ["citadel_ingest*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

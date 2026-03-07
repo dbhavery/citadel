@@ -1,0 +1,13 @@
+{
+  "name": "citadel-dashboard",
+  "version": "0.1.0",
+  "description": "Citadel AI Operations Platform - Dashboard UI",
+  "private": true,
+  "scripts": {
+    "serve": "npx serve . -l 3000",
+    "start": "npx serve . -l 3000"
+  },
+  "keywords": ["citadel", "ai", "dashboard", "llm", "observability"],
+  "author": "Donald Havery <dbhavery@gmail.com>",
+  "license": "MIT"
+}
