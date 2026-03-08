@@ -1,4 +1,5 @@
 # Citadel
+[![CI](https://github.com/dbhavery/citadel/actions/workflows/ci.yml/badge.svg)](https://github.com/dbhavery/citadel/actions/workflows/ci.yml)
 
 **Open-Source AI Operations Platform**
 
