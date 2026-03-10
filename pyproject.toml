@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "citadel-ai"
 version = "0.1.0"
 description = "Open-source AI operations platform - gateway, vector engine, agents, ingestion, tracing, dashboard"
-authors = [{name = "Donald Havery", email = "dbhavery@gmail.com"}]
+authors = [{name = "Donald Havery", email = "dbhavery@users.noreply.github.com"}]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.10"

@@ -8,6 +8,6 @@
     "start": "npx serve . -l 3000"
   },
   "keywords": ["citadel", "ai", "dashboard", "llm", "observability"],
-  "author": "Donald Havery <dbhavery@gmail.com>",
+  "author": "Donald Havery",
   "license": "MIT"
 }
