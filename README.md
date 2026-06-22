@@ -67,7 +67,7 @@ Every package works independently. Use one, use all, or any combination.
 | **citadel-vector** | HNSW vector search engine (Malkov & Yashunin 2018), persistent storage, metadata filtering, REST API | Yes |
 | **citadel-agents** | ReAct agent runtime with `@tool` auto-schema, conversation + vector memory, multi-agent orchestration, YAML definitions | Yes |
 | **citadel-ingest** | Document pipeline with 4 chunking strategies, 7 format parsers, SHA-256 deduplication | Yes |
-| **citadel-trace** | LLM observability with span/trace model, pricing DB (15+ models), auto-instrumentation, cost/latency/token metrics, alert rules | Yes |
+| **citadel-trace** | LLM observability with span/trace model, pricing DB (12 cloud models + local Ollama), auto-instrumentation, cost/latency/token metrics, alert rules | Yes |
 | **citadel-dashboard** | Operations dashboard -- single HTML file, dark theme, zero build step, auto-refresh, demo mode | Yes |
 
 ## Key Technical Decisions
