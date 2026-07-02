@@ -5,6 +5,7 @@ Provides short-term conversation memory and optional long-term vector memory.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from collections import Counter
@@ -88,9 +89,14 @@ class ConversationMemory:
 class VectorMemory:
     """Long-term memory using vector search.
 
-    Tries to use citadel_vector if available, falls back to simple
-    TF-IDF keyword search for zero-dependency operation.
+    When citadel_vector is available, text is embedded with a small
+    deterministic hashing embedder and stored/queried through the HNSW
+    VectorStore; otherwise it falls back to a zero-dependency TF-IDF-style
+    keyword search. The embedder is a lightweight hashing bag-of-words
+    (not a neural model) — enough to exercise the vector path end to end.
     """
+
+    _EMBED_DIM = 256
 
     def __init__(self, path: str = "./agent_memory") -> None:
         """Initialize vector memory.
@@ -101,13 +107,19 @@ class VectorMemory:
         self.path = path
         self._backend: str = "keyword"
         self._store: list[dict[str, Any]] = []  # Fallback store
+        self._next_id = 0
 
-        # Try to use citadel_vector
+        # Try to use citadel_vector for real vector search. The store needs a
+        # fixed dimension and a way to turn text into vectors (see _embed). If
+        # the optional package is missing or fails to initialise, degrade to the
+        # always-available keyword backend rather than crash.
         try:
             import citadel_vector  # type: ignore[import-not-found] — optional dependency
+            self._vector_store = citadel_vector.VectorStore(
+                path=path, dim=self._EMBED_DIM
+            )
             self._backend = "vector"
-            self._vector_store = citadel_vector.VectorStore(path=path)
-        except ImportError:
+        except Exception:
             self._backend = "keyword"
 
     def store(self, text: str, metadata: dict[str, Any] | None = None) -> None:
@@ -118,7 +130,9 @@ class VectorMemory:
             metadata: Optional metadata to associate with the text.
         """
         if self._backend == "vector":
-            self._vector_store.add(text, metadata=metadata or {})
+            meta = {"text": text, **(metadata or {})}
+            self._vector_store.add(self._embed(text), id=self._next_id, metadata=meta)
+            self._next_id += 1
         else:
             self._store.append({
                 "text": text,
@@ -137,8 +151,14 @@ class VectorMemory:
             List of matching text strings, ordered by relevance.
         """
         if self._backend == "vector":
-            results = self._vector_store.search(query, k=k)
-            return [r.text for r in results]
+            results = self._vector_store.search(self._embed(query), k=k)
+            # VectorStore.search returns (id, distance, metadata) tuples; the
+            # original text is carried in metadata under "text".
+            return [
+                meta["text"]
+                for _id, _distance, meta in results
+                if meta and "text" in meta
+            ]
         else:
             return self._keyword_search(query, k)
 
@@ -146,6 +166,31 @@ class VectorMemory:
         """Tokenize text into word frequency counts."""
         words = re.findall(r'\w+', text.lower())
         return Counter(words)
+
+    def _embed(self, text: str) -> Any:
+        """Embed text into a fixed-dimension vector via hashing bag-of-words.
+
+        Deterministic and dependency-light: each token is hashed with BLAKE2b
+        (stable across processes, unlike the builtin hash()) into one of
+        _EMBED_DIM signed buckets weighted by term frequency, then the vector is
+        L2-normalised. This is a lightweight signal — token overlap in vector
+        space, not a neural embedding — enough to drive the HNSW vector store.
+        Only called on the vector backend, where numpy (a citadel_vector
+        dependency) is guaranteed to be importable.
+        """
+        import numpy as np
+
+        vec = np.zeros(self._EMBED_DIM, dtype=np.float64)
+        for token, count in self._tokenize(text).items():
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+            h = int.from_bytes(digest, "big")
+            bucket = h % self._EMBED_DIM
+            sign = 1.0 if (h >> 8) & 1 else -1.0
+            vec[bucket] += sign * float(count)
+        norm = float(np.linalg.norm(vec))
+        if norm > 0.0:
+            vec /= norm
+        return vec
 
     def _keyword_search(self, query: str, k: int) -> list[str]:
         """Simple TF-IDF-like keyword search fallback.

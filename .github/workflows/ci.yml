@@ -24,5 +24,8 @@ jobs:
           python-version: "3.13"
       - name: Install package
         run: pip install -e "packages/${{ matrix.package }}[dev]"
+      - name: Install vector backend for agents integration test
+        if: matrix.package == 'citadel-agents'
+        run: pip install -e packages/citadel-vector
       - name: Run tests
         run: cd packages/${{ matrix.package }} && pytest --tb=short -q
