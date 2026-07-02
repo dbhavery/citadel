@@ -5,7 +5,7 @@ A self-hosted AI operations platform that replaces managed LLM infrastructure wi
 [![CI](https://github.com/dbhavery/citadel/actions/workflows/ci.yml/badge.svg)](https://github.com/dbhavery/citadel/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![Packages](https://img.shields.io/badge/packages-6-green.svg)](#packages)
-[![Tests](https://img.shields.io/badge/tests-100-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-115-brightgreen.svg)](#tests)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 ## Why I Built This
@@ -16,7 +16,7 @@ I wanted a single platform where every component is independent, composable, and
 
 ## What It Does
 
-- **Unified LLM gateway** with automatic routing across Claude, Gemini, OpenAI, and Ollama -- provider failover via circuit breakers eliminates single-provider lock-in
+- **Unified LLM gateway** with automatic routing across Claude, Gemini, OpenAI, and Ollama -- when a provider errors or its circuit breaker is open, the gateway fails over to the next eligible provider in priority order, eliminating single-provider lock-in
 - **HNSW vector search engine** implemented from the Malkov & Yashunin 2018 paper in pure Python+NumPy -- O(log n) approximate nearest neighbor search with zero external vector DB dependency
 - **Semantic response caching** deduplicates LLM API calls, saving $0.01-0.10 per cached hit depending on model and token count
 - **ReAct agent runtime** with YAML-defined agents, auto-schema `@tool` decorator, and multi-agent orchestration
@@ -63,7 +63,7 @@ Every package works independently. Use one, use all, or any combination.
 
 | Package | What It Does | Standalone? |
 |---------|-------------|-------------|
-| **citadel-gateway** | OpenAI-compatible LLM proxy with regex model routing, SQLite response cache, token-bucket rate limiter, circuit breaker failover | Yes |
+| **citadel-gateway** | OpenAI-compatible LLM proxy with regex model routing, SQLite response cache, token-bucket rate limiter, and per-provider circuit breakers with automatic cross-provider failover | Yes |
 | **citadel-vector** | HNSW vector search engine (Malkov & Yashunin 2018), persistent storage, metadata filtering, REST API | Yes |
 | **citadel-agents** | ReAct agent runtime with `@tool` auto-schema, conversation + vector memory, multi-agent orchestration, YAML definitions | Yes |
 | **citadel-ingest** | Document pipeline with 4 chunking strategies, 7 format parsers, SHA-256 deduplication | Yes |
@@ -88,10 +88,10 @@ Every package works independently. Use one, use all, or any combination.
 |--------|-------|
 | HNSW search complexity | O(log n) approximate nearest neighbor |
 | Vector DB infrastructure cost | $0/month (vs. $25-70+/month for managed alternatives) |
-| Provider lock-in | None -- automatic failover across 4 providers |
+| Provider lock-in | None -- automatic failover to the next eligible provider |
 | Cache savings per hit | $0.01-0.10 depending on model |
 | Codebase | 10K+ lines across 6 packages |
-| Test coverage | 100 tests across all packages |
+| Test coverage | 115 tests across all packages |
 
 ## Live Demo
 
@@ -148,7 +148,7 @@ cd packages/citadel-ingest  && python -m pytest tests/ -v
 cd packages/citadel-trace   && python -m pytest tests/ -v
 ```
 
-100 tests across 5 packages covering: HNSW index operations and recall accuracy, gateway routing and failover logic, agent ReAct loop execution, document chunking strategies, trace collection and cost calculation, rate limiter and circuit breaker state transitions.
+115 tests across 5 packages covering: HNSW index operations and recall accuracy, gateway routing and cross-provider failover logic, the end-to-end gateway request path (route -> circuit breaker -> cache -> provider) via `test_server.py`, agent ReAct loop execution, document chunking strategies, trace collection and cost calculation, rate limiter and circuit breaker state transitions.
 
 ## License
 
