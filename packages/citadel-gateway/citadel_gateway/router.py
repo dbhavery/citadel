@@ -105,6 +105,41 @@ class Router:
                 )
         raise ValueError(f"No routing rule matched model: {model_name!r}")
 
+    def resolve_all(self, model_name: str) -> list[RouteResult]:
+        """Resolve *model_name* to every eligible provider, in failover order.
+
+        Returns the full list of matching routes ordered by descending rule
+        priority (the same order ``resolve`` uses to pick its single winner).
+        The first element is the primary target; subsequent elements are
+        fallbacks the gateway tries in turn when the primary provider fails
+        or its circuit is open.
+
+        Routes are de-duplicated by provider — the highest-priority rule for
+        each provider wins, so a provider never appears twice in the chain.
+
+        Raises ``ValueError`` if no rule matches (guards against a
+        misconfigured rule set with no catch-all).
+        """
+        results: list[RouteResult] = []
+        seen_providers: set[str] = set()
+        for rule in self._rules:
+            if not rule.matches(model_name):
+                continue
+            if rule.provider in seen_providers:
+                continue
+            seen_providers.add(rule.provider)
+            concrete_model = rule.model.replace("{model}", model_name)
+            results.append(
+                RouteResult(
+                    provider=rule.provider,
+                    model=concrete_model,
+                    cost_per_1k_tokens=rule.cost_per_1k_tokens,
+                )
+            )
+        if not results:
+            raise ValueError(f"No routing rule matched model: {model_name!r}")
+        return results
+
     def cheapest(self, model_name: str) -> RouteResult:
         """Like ``resolve`` but picks the cheapest matching rule."""
         matches: list[tuple[RoutingRule, RouteResult]] = []

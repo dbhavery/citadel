@@ -60,6 +60,50 @@ class TestRouterCustomRules:
         assert result.provider == "high"
 
 
+class TestResolveAll:
+    """Verify the failover chain produced by resolve_all."""
+
+    def test_resolve_all_returns_chain_in_priority_order(self) -> None:
+        router = Router(
+            rules=[
+                RoutingRule(pattern=r"m-.*", provider="a", model="{model}", priority=10),
+                RoutingRule(pattern=r"m-.*", provider="b", model="{model}", priority=5),
+                RoutingRule(pattern=r"m-.*", provider="c", model="{model}", priority=1),
+            ]
+        )
+        chain = router.resolve_all("m-1")
+        assert [r.provider for r in chain] == ["a", "b", "c"]
+
+    def test_resolve_all_dedupes_provider_keeping_highest_priority(self) -> None:
+        router = Router(
+            rules=[
+                RoutingRule(pattern=r"m-.*", provider="a", model="hi-{model}", priority=10),
+                RoutingRule(pattern=r"m-.*", provider="a", model="lo-{model}", priority=1),
+                RoutingRule(pattern=r"m-.*", provider="b", model="{model}", priority=5),
+            ]
+        )
+        chain = router.resolve_all("m-1")
+        assert [r.provider for r in chain] == ["a", "b"]
+        # Highest-priority rule for provider "a" wins.
+        assert chain[0].model == "hi-m-1"
+
+    def test_resolve_all_default_rules_include_ollama_fallback(self) -> None:
+        # A claude model falls back to the ollama catch-all after anthropic.
+        chain = Router().resolve_all("claude-sonnet-4-20250514")
+        providers = [r.provider for r in chain]
+        assert providers[0] == "anthropic"
+        assert "ollama" in providers
+
+    def test_resolve_all_raises_when_no_rule_matches(self) -> None:
+        router = Router(
+            rules=[RoutingRule(pattern=r"only", provider="a", model="{model}", priority=1)]
+        )
+        import pytest
+
+        with pytest.raises(ValueError):
+            router.resolve_all("nope")
+
+
 class TestCostAwareRouting:
     """Verify cost-aware routing picks the cheapest match."""
 
