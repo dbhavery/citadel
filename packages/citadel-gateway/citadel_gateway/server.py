@@ -81,9 +81,10 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     # --- Routes ------------------------------------------------------------
 
     @app.get("/health")
-    async def health() -> dict[str, Any]:
+    async def health(request: Request) -> dict[str, Any]:
+        state = request.app.state
         provider_status = {}
-        for name, breaker in breakers.items():
+        for name, breaker in state.breakers.items():
             provider_status[name] = {
                 "state": breaker.state.value,
                 "available": breaker.is_available(),
@@ -93,15 +94,15 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
             "version": __version__,
             "providers": provider_status,
         }
-        if cache is not None:
-            result["cache"] = cache.stats()
+        if state.cache is not None:
+            result["cache"] = state.cache.stats()
         return result
 
     @app.get("/v1/models")
-    async def list_models() -> dict[str, Any]:
+    async def list_models(request: Request) -> dict[str, Any]:
         """List models from all configured providers."""
         all_models: list[ModelInfo] = []
-        for pname, provider in providers.items():
+        for pname, provider in request.app.state.providers.items():
             try:
                 model_ids = await provider.list_models()
                 for mid in model_ids:
@@ -114,48 +115,57 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     async def chat_completions(
         body: ChatCompletionRequest, request: Request
     ) -> JSONResponse:
-        """OpenAI-compatible chat completions endpoint."""
+        """OpenAI-compatible chat completions endpoint.
+
+        Resolves the requested model to an ordered chain of eligible providers
+        and attempts each in priority order, transparently failing over to the
+        next provider when one errors or its circuit breaker is open. Only when
+        every eligible provider is exhausted does the gateway surface an error.
+        """
+        # Subsystems are read from app.state so they can be swapped in tests.
+        state = request.app.state
+        router_: Router = state.router
+        providers_: dict[str, Provider] = state.providers
+        breakers_: dict[str, CircuitBreaker] = state.breakers
+        cache_: ResponseCache | None = state.cache
+        limiter_: RateLimiter | None = state.limiter
+        cfg: GatewayConfig = state.config
+
         # --- Rate limiting -------------------------------------------------
-        if limiter is not None:
+        if limiter_ is not None:
             api_key = _extract_api_key(request)
-            allowed = await limiter.acquire(api_key, body.model)
+            allowed = await limiter_.acquire(api_key, body.model)
             if not allowed:
                 raise HTTPException(
                     status_code=429,
                     detail="Rate limit exceeded. Try again later.",
                 )
 
-        # --- Routing -------------------------------------------------------
+        # --- Routing: full failover chain in priority order ----------------
         try:
-            route = router.resolve(body.model)
+            routes = router_.resolve_all(body.model)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        provider = providers.get(route.provider)
-        if provider is None:
+        # Keep only routes whose provider is actually configured.
+        eligible = [r for r in routes if providers_.get(r.provider) is not None]
+        if not eligible:
             raise HTTPException(
                 status_code=502,
-                detail=f"Provider '{route.provider}' is not configured.",
-            )
-
-        # --- Circuit breaker -----------------------------------------------
-        breaker = breakers.get(route.provider)
-        if breaker and not breaker.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail=f"Provider '{route.provider}' is temporarily unavailable (circuit open).",
+                detail=f"No configured provider can serve model '{body.model}'.",
             )
 
         # --- Cache check ---------------------------------------------------
         messages_dicts = [m.model_dump(exclude_none=True) for m in body.messages]
         cache_key: str | None = None
-        if cache is not None and not body.stream:
-            cache_key = ResponseCache.make_key(route.model, messages_dicts)
-            cached = cache.get(cache_key)
+        if cache_ is not None and not body.stream:
+            # Cache is keyed on the primary route's model so a request maps to
+            # the same entry regardless of which provider ultimately served it.
+            cache_key = ResponseCache.make_key(eligible[0].model, messages_dicts)
+            cached = cache_.get(cache_key)
             if cached is not None:
                 return JSONResponse(content=cached)
 
-        # --- Provider call -------------------------------------------------
         kwargs: dict[str, Any] = {}
         if body.temperature is not None:
             kwargs["temperature"] = body.temperature
@@ -166,49 +176,76 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
         if body.stop is not None:
             kwargs["stop"] = body.stop
 
-        try:
-            result = await provider.complete(messages_dicts, route.model, **kwargs)
-            if breaker:
-                breaker.record_success()
-        except Exception as exc:
-            if breaker:
-                breaker.record_failure()
-            logger.error(
-                "Provider %s failed for model %s: %s",
-                route.provider,
-                route.model,
-                exc,
-                exc_info=True,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail=f"Provider '{route.provider}' error: {exc}",
-            ) from exc
+        # --- Failover loop -------------------------------------------------
+        last_error: Exception | None = None
+        attempted = False
+        open_providers: list[str] = []
 
-        # --- Build response ------------------------------------------------
-        response = ChatCompletionResponse(
-            model=result.model,
-            choices=[
-                Choice(
-                    index=0,
-                    message=ChoiceMessage(role="assistant", content=result.content),
-                    finish_reason=result.finish_reason,
+        for route in eligible:
+            breaker = breakers_.get(route.provider)
+            if breaker is not None and not breaker.is_available():
+                # Circuit open — skip this provider and fail over to the next.
+                open_providers.append(route.provider)
+                continue
+
+            provider = providers_[route.provider]
+            attempted = True
+            try:
+                result = await provider.complete(messages_dicts, route.model, **kwargs)
+            except Exception as exc:
+                if breaker is not None:
+                    breaker.record_failure()
+                last_error = exc
+                logger.warning(
+                    "Provider %s failed for model %s (%s); "
+                    "failing over to next eligible provider.",
+                    route.provider,
+                    route.model,
+                    exc,
                 )
-            ],
-            usage=Usage(
-                prompt_tokens=result.prompt_tokens,
-                completion_tokens=result.completion_tokens,
-                total_tokens=result.total_tokens,
-            ),
+                continue
+
+            if breaker is not None:
+                breaker.record_success()
+
+            response = ChatCompletionResponse(
+                model=result.model,
+                choices=[
+                    Choice(
+                        index=0,
+                        message=ChoiceMessage(
+                            role="assistant", content=result.content
+                        ),
+                        finish_reason=result.finish_reason,
+                    )
+                ],
+                usage=Usage(
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
+                    total_tokens=result.total_tokens,
+                ),
+            )
+            response_dict = response.to_openai_dict()
+
+            if cache_ is not None and cache_key is not None:
+                cache_.put(cache_key, response_dict, ttl=cfg.cache_ttl)
+
+            return JSONResponse(content=response_dict)
+
+        # --- Every eligible provider was exhausted -------------------------
+        if not attempted:
+            # No provider was even tried — all circuits were open.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "All eligible providers are temporarily unavailable "
+                    f"(circuit open): {', '.join(open_providers)}."
+                ),
+            )
+        raise HTTPException(
+            status_code=502,
+            detail=f"All eligible providers failed. Last error: {last_error}",
         )
-
-        response_dict = response.to_openai_dict()
-
-        # --- Cache store ---------------------------------------------------
-        if cache is not None and cache_key is not None:
-            cache.put(cache_key, response_dict, ttl=config.cache_ttl)
-
-        return JSONResponse(content=response_dict)
 
     return app
 
