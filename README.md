@@ -91,7 +91,7 @@ Every package works independently. Use one, use all, or any combination.
 | Provider lock-in | None -- automatic failover to the next eligible provider |
 | Cache savings per hit | $0.01-0.10 depending on model |
 | Codebase | 10K+ lines across 6 packages |
-| Test coverage | 115 tests across all packages |
+| Test coverage | 118 tests across all packages |
 
 ## Live Demo
 
@@ -148,7 +148,7 @@ cd packages/citadel-ingest  && python -m pytest tests/ -v
 cd packages/citadel-trace   && python -m pytest tests/ -v
 ```
 
-115 tests across 5 packages covering: HNSW index operations and recall accuracy, gateway routing and cross-provider failover logic, the end-to-end gateway request path (route -> circuit breaker -> cache -> provider) via `test_server.py`, agent ReAct loop execution, document chunking strategies, trace collection and cost calculation, rate limiter and circuit breaker state transitions.
+118 tests across 5 packages covering: HNSW index operations and recall accuracy, gateway routing and cross-provider failover logic, the end-to-end gateway request path (route -> circuit breaker -> cache -> provider) via `test_server.py`, agent ReAct loop execution, document chunking strategies, trace collection and cost calculation, rate limiter and circuit breaker state transitions.
 
 ## License
 
