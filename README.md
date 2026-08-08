@@ -5,7 +5,7 @@ A self-hosted AI operations platform that replaces managed LLM infrastructure wi
 [![CI](https://github.com/dbhavery/citadel/actions/workflows/ci.yml/badge.svg)](https://github.com/dbhavery/citadel/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![Packages](https://img.shields.io/badge/packages-6-green.svg)](#packages)
-[![Tests](https://img.shields.io/badge/tests-115-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-118-brightgreen.svg)](#tests)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 ## Why I Built This
