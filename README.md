@@ -99,34 +99,93 @@ Every package works independently. Use one, use all, or any combination.
 
 ## Quick Start
 
-```bash
-# Install the full platform
-pip install citadel-ai
-citadel serve --port 8080
+None of `citadel-ai`, `citadel-vector`, `citadel-gateway`, or `citadel-agents` are published on PyPI. Install a package straight from a clone, in editable mode.
 
-# Or install only what you need
-pip install citadel-vector    # Just vector search
-pip install citadel-gateway   # Just the LLM gateway
-pip install citadel-agents    # Just the agent runtime
+```bash
+git clone https://github.com/dbhavery/citadel.git
+cd citadel
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+pip install -e packages/citadel-vector
+```
+
+Vector search runs standalone, no server, no external vector database:
+
+```python
+import numpy as np
+from citadel_vector import VectorStore
+
+store = VectorStore(path="./my_vectors", dim=4)
+store.add(np.array([0.1, 0.2, 0.3, 0.4]), "doc_1", metadata={"source": "readme.md"})
+store.add(np.array([0.9, 0.1, 0.0, 0.2]), "doc_2", metadata={"source": "other.md"})
+
+results = store.search(np.array([0.1, 0.2, 0.3, 0.4]), k=2)
+for doc_id, distance, metadata in results:
+    print(f"{doc_id}: distance={distance:.4f} metadata={metadata}")
+```
+
+Output, from a run of this exact code against this repo:
+
+```
+doc_1: distance=0.0000 metadata={'source': 'readme.md'}
+doc_2: distance=0.6259 metadata={'source': 'other.md'}
+```
+
+There is no `GatewayClient` class. `citadel-gateway` is a FastAPI app (`citadel_gateway.server.create_app`), reached over its OpenAI-compatible HTTP routes, not imported as a client.
+
+`citadel serve` reads its providers and keys from the environment through `GatewayConfig.from_env()`, so it will make real calls to whatever providers you have configured. The example below instead exercises the same request path with an in-process fake provider, which needs no key and makes no network call.
+
+The example below exercises the real gateway request path, route, circuit breaker, cache, provider call, using an in-process fake provider in place of a real one. It needs no API key and makes no network call:
+
+```bash
+pip install -e packages/citadel-gateway
 ```
 
 ```python
-# Vector search -- zero external dependencies
-from citadel_vector import VectorStore
+from typing import Any
 
-store = VectorStore(path="./my_vectors", dim=384)
-store.add("doc_1", embedding=[0.1, 0.2, ...], metadata={"source": "readme.md"})
-results = store.search(query_embedding=[0.1, 0.2, ...], k=5)
+from fastapi.testclient import TestClient
 
-# LLM gateway -- unified interface across providers
-from citadel_gateway import GatewayClient
+from citadel_gateway.config import GatewayConfig
+from citadel_gateway.providers.base import CompletionResponse, Provider
+from citadel_gateway.router import Router, RoutingRule
+from citadel_gateway.server import create_app
 
-client = GatewayClient()
-response = client.complete(
-    model="claude-sonnet-4-20250514",
-    messages=[{"role": "user", "content": "Hello, Citadel."}],
+
+class LocalProvider(Provider):
+    async def complete(self, messages: list[dict[str, str]], model: str, **kwargs: Any) -> CompletionResponse:
+        return CompletionResponse(content="Hello from Citadel.", model=model, prompt_tokens=6, completion_tokens=4)
+
+
+config = GatewayConfig(providers={}, cache_enabled=False, rate_limit_enabled=False)
+app = create_app(config)
+app.state.router = Router(rules=[RoutingRule(pattern=r"local-.*", provider="local", model="{model}", priority=10)])
+app.state.providers = {"local": LocalProvider()}
+
+client = TestClient(app)
+response = client.post(
+    "/v1/chat/completions",
+    json={"model": "local-demo", "messages": [{"role": "user", "content": "Hello, Citadel."}]},
 )
-print(f"Cost: ${response.cost:.4f} | Latency: {response.latency_ms}ms")
+print(response.status_code)
+print(response.json())
+```
+
+Output, from a run of this exact code against this repo (the response id and created timestamp differ on every run):
+
+```
+200
+{'id': 'chatcmpl-3945f97270f0', 'object': 'chat.completion', 'created': 1789951451, 'model': 'local-demo', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'Hello from Citadel.'}, 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 6, 'completion_tokens': 4, 'total_tokens': 10}}
+```
+
+To route to a real provider instead of `LocalProvider`, use one of the concrete providers in `citadel_gateway/providers/` (Anthropic, OpenAI-compatible, Ollama) and set its API key through `GatewayConfig`.
+
+`citadel-agents` needs `citadel-vector` installed first, for its vector-memory backend:
+
+```bash
+pip install -e packages/citadel-vector
+pip install -e packages/citadel-agents
 ```
 
 ## Lessons Learned
@@ -139,16 +198,38 @@ print(f"Cost: ${response.cost:.4f} | Latency: {response.latency_ms}ms")
 
 ## Tests
 
+Each package's test dependencies live in its own `dev` extra. Install that extra from the clone before running its tests. `citadel-agents` needs `citadel-vector` installed too, for its vector-memory backend.
+
 ```bash
-# Run all tests
-cd packages/citadel-gateway && python -m pytest tests/ -v
-cd packages/citadel-vector  && python -m pytest tests/ -v
-cd packages/citadel-agents  && python -m pytest tests/ -v
-cd packages/citadel-ingest  && python -m pytest tests/ -v
-cd packages/citadel-trace   && python -m pytest tests/ -v
+pip install -e "packages/citadel-vector[dev]"
+cd packages/citadel-vector && python -m pytest tests/ -v && cd ../..
+
+pip install -e "packages/citadel-gateway[dev]"
+cd packages/citadel-gateway && python -m pytest tests/ -v && cd ../..
+
+pip install -e "packages/citadel-vector[dev]"
+pip install -e "packages/citadel-agents[dev]"
+cd packages/citadel-agents && python -m pytest tests/ -v && cd ../..
+
+pip install -e "packages/citadel-ingest[dev]"
+cd packages/citadel-ingest && python -m pytest tests/ -v && cd ../..
+
+pip install -e "packages/citadel-trace[dev]"
+cd packages/citadel-trace && python -m pytest tests/ -v && cd ../..
 ```
 
-118 tests across 5 packages covering: HNSW index operations and recall accuracy, gateway routing and cross-provider failover logic, the end-to-end gateway request path (route -> circuit breaker -> cache -> provider) via `test_server.py`, agent ReAct loop execution, document chunking strategies, trace collection and cost calculation, rate limiter and circuit breaker state transitions.
+Observed on a fresh clone:
+
+| Package | Tests |
+|---|---|
+| citadel-gateway | 49 passed |
+| citadel-vector | 18 passed |
+| citadel-agents | 18 passed |
+| citadel-ingest | 15 passed |
+| citadel-trace | 18 passed |
+| Total | 118 passed |
+
+Coverage: HNSW index operations and recall accuracy, gateway routing and cross-provider failover logic, the end-to-end gateway request path (route -> circuit breaker -> cache -> provider) via `test_server.py`, agent ReAct loop execution, document chunking strategies, trace collection and cost calculation, rate limiter and circuit breaker state transitions.
 
 ## License
 
