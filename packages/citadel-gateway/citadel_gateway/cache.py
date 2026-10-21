@@ -1,4 +1,8 @@
-"""Semantic response cache backed by SQLite."""
+"""Exact-match response cache backed by SQLite.
+
+Entries are keyed by a SHA-256 hash of the model name and the exact message
+list. There is no similarity matching: any change to the messages is a miss.
+"""
 
 from __future__ import annotations
 
@@ -63,7 +67,7 @@ class ResponseCache:
 
         response_json, created_at, ttl = row
         if time.time() - created_at > ttl:
-            # Expired — delete and treat as miss
+            # Expired: delete and treat as miss
             self._conn.execute("DELETE FROM cache WHERE key = ?", (key,))
             self._conn.commit()
             self._misses += 1
