@@ -60,7 +60,7 @@ Storage format:
 - **Build time:** O(n * log(n)) -- each insertion is O(log(n)) with beam search
 - **Search time:** O(log(n)) -- hierarchical traversal from top layer to bottom
 - **Memory:** O(n * M) for graph edges + O(n * dim) for vectors
-- **Recall@10:** >90% with default parameters (M=16, ef_construction=200, ef_search=50)
+- **Recall@10:** `tests/test_hnsw.py` builds an index of 1,000 random 64-dimension unit vectors with the default parameters (M=16, ef_construction=200, ef_search=50) and requires average recall@10 above 0.9 against brute-force search over 50 queries
 
 Key tuning parameters:
 - `M` -- connections per node. Higher = better recall, more memory. Default: 16.
